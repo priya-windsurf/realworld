@@ -249,3 +249,126 @@ class TestTagsAutocomplete(TestCase):
     def test_empty_query_string(self):
         response = self.client.get(self.url)
         self.assertEqual(len(response.context["tags"]), 0)
+
+    def test_with_multiple_tags(self):
+        response = self.client.get(self.url, {"tags": "Python Django"})
+        self.assertEqual(len(response.context["tags"]), 0)
+
+    def test_with_partial_match(self):
+        response = self.client.get(self.url, {"tags": "Py"})
+        self.assertEqual(len(response.context["tags"]), 1)
+
+
+class TestHomeViewFiltering(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.author = User.objects.create_user(
+            "tester@gmail.com", name="Test User", password="testpass1"
+        )
+        cls.article = Article.objects.create(
+            title="test",
+            summary="test", 
+            content="test",
+            author=cls.author,
+        )
+        cls.article.tags.add("python")
+
+    def test_home_with_own_feed(self):
+        self.client.force_login(self.author)
+        url = reverse("home")
+        response = self.client.get(url, {"own": "true"})
+        self.assertEqual(response.status_code, http.HTTPStatus.OK)
+        self.assertTrue(response.context["own_feed"])
+
+    def test_home_with_tag_filter(self):
+        url = reverse("home")
+        response = self.client.get(url, {"tag": "python"})
+        self.assertEqual(response.status_code, http.HTTPStatus.OK)
+        self.assertEqual(len(response.context["articles"]), 1)
+
+    def test_home_with_nonexistent_tag(self):
+        url = reverse("home")
+        response = self.client.get(url, {"tag": "nonexistent"})
+        self.assertEqual(response.status_code, http.HTTPStatus.OK)
+        self.assertEqual(len(response.context["articles"]), 0)
+
+
+class TestEditArticleView(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.author = User.objects.create_user(
+            "tester@gmail.com", name="Test User", password="testpass1"
+        )
+        cls.other_user = User.objects.create_user(
+            "other@gmail.com", name="Other User", password="testpass1"
+        )
+        cls.article = Article.objects.create(
+            title="test",
+            summary="test",
+            content="test",
+            author=cls.author,
+        )
+
+    def test_get_edit_article(self):
+        self.client.force_login(self.author)
+        url = reverse("edit_article", args=[self.article.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, http.HTTPStatus.OK)
+
+    def test_post_edit_article_valid(self):
+        self.client.force_login(self.author)
+        url = reverse("edit_article", args=[self.article.id])
+        response = self.client.post(url, {
+            "title": "Updated Title",
+            "summary": "Updated summary",
+            "content": "Updated content",
+        })
+        self.article.refresh_from_db()
+        self.assertEqual(response.headers.get("HX-Redirect"), self.article.get_absolute_url())
+
+    def test_post_edit_article_invalid(self):
+        self.client.force_login(self.author)
+        url = reverse("edit_article", args=[self.article.id])
+        response = self.client.post(url, {
+            "title": "",
+            "summary": "",
+            "content": "",
+        })
+        self.assertEqual(response.status_code, http.HTTPStatus.OK)
+
+    def test_edit_article_wrong_author(self):
+        self.client.force_login(self.other_user)
+        url = reverse("edit_article", args=[self.article.id])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, http.HTTPStatus.NOT_FOUND)
+
+
+class TestDeleteArticleView(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.author = User.objects.create_user(
+            "tester@gmail.com", name="Test User", password="testpass1"
+        )
+        cls.other_user = User.objects.create_user(
+            "other@gmail.com", name="Other User", password="testpass1"
+        )
+        cls.article = Article.objects.create(
+            title="test",
+            summary="test",
+            content="test",
+            author=cls.author,
+        )
+
+    def test_delete_article(self):
+        self.client.force_login(self.author)
+        url = reverse("delete_article", args=[self.article.id])
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, http.HTTPStatus.FOUND)
+        self.assertEqual(Article.objects.count(), 0)
+
+    def test_delete_article_wrong_author(self):
+        self.client.force_login(self.other_user)
+        url = reverse("delete_article", args=[self.article.id])
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, http.HTTPStatus.NOT_FOUND)
+        self.assertEqual(Article.objects.count(), 1)
