@@ -113,6 +113,45 @@ class TestSettingsForm(TestCase):
         self.assertEqual(original_user.name, "Test User")
 
 
+class TestSettingsForm(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(
+            "tester@gmail.com", name="Test User", password="testpass1"
+        )
+
+    def test_save_with_password(self):
+        form_data = {
+            "name": "Updated Name",
+            "email": "updated@gmail.com",
+            "bio": "Updated bio",
+            "image": "",
+            "password": "newpassword123",
+        }
+        form = SettingsForm(form_data, instance=self.user)
+        self.assertTrue(form.is_valid())
+
+        user = form.save()
+        self.assertTrue(user.check_password("newpassword123"))
+        self.assertEqual(user.name, "Updated Name")
+        self.assertEqual(user.email, "updated@gmail.com")
+
+    def test_save_without_password(self):
+        form_data = {
+            "name": "Updated Name",
+            "email": "updated@gmail.com", 
+            "bio": "Updated bio",
+            "image": "",
+            "password": "",
+        }
+        form = SettingsForm(form_data, instance=self.user)
+        self.assertTrue(form.is_valid())
+
+        user = form.save()
+        self.assertTrue(user.check_password("testpass1"))
+        self.assertEqual(user.name, "Updated Name")
+
+
 class TestFollowView(TestCase):
     password = "testpass"
 
@@ -199,3 +238,38 @@ class TestCheckEmailView(TestCase):
         response = self.client.get(self.url, {"email": "tester@gmail.com"})
         self.assertEqual(response.status_code, http.HTTPStatus.OK)
         self.assertContains(response, "This email is in use")
+
+
+class TestProfileView(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(
+            "tester@gmail.com", name="Test User", password="testpass1"
+        )
+        cls.url = reverse("profile", args=[cls.user.id])
+
+    def test_profile_anonymous_user(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, http.HTTPStatus.OK)
+        self.assertEqual(response.context["profile"], self.user)
+        self.assertFalse(response.context["is_following"])
+
+    def test_profile_with_favorites_filter(self):
+        response = self.client.get(self.url, {"favorites": "true"})
+        self.assertEqual(response.status_code, http.HTTPStatus.OK)
+        self.assertTrue(response.context["favorites"])
+
+
+class TestSettingsView(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(
+            "tester@gmail.com", name="Test User", password="testpass1"
+        )
+        cls.url = reverse("settings")
+
+    def test_post_invalid_form(self):
+        self.client.force_login(self.user)
+        response = self.client.post(self.url, {"email": "invalid-email"})
+        self.assertEqual(response.status_code, http.HTTPStatus.OK)
+        self.assertContains(response, "Enter a valid email address")
